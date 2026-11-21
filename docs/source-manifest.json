@@ -1,0 +1,197 @@
+[
+  {
+    "source": "output/team5-bastion-integration/design.py",
+    "public": "src\\team5-bastion-integration\\design.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-bastion-integration/README.md",
+    "public": "src\\team5-bastion-integration\\README.md",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-bastion-integration/reference-parent.json",
+    "public": "src\\team5-bastion-integration\\reference-parent.json",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-bastion-integration/run-response.py",
+    "public": "src\\team5-bastion-integration\\run-response.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-bastion-integration/setup.py",
+    "public": "src\\team5-bastion-integration\\setup.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-bastion-integration/test_design.py",
+    "public": "src\\team5-bastion-integration\\test_design.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-bastion-integration/validate_sdk.py",
+    "public": "src\\team5-bastion-integration\\validate_sdk.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-bastion-integration/VALIDATION.md",
+    "public": "src\\team5-bastion-integration\\VALIDATION.md",
+    "sanitized": false
+  },
+  {
+    "source": "output/team5-bastion-integration/preview/infrastructure.json",
+    "public": "src\\team5-bastion-integration\\preview\\infrastructure.json",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-bastion-integration/preview/workflow.json",
+    "public": "src\\team5-bastion-integration\\preview\\workflow.json",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-bastion-integration/runtime/buildspec.yml",
+    "public": "src\\team5-bastion-integration\\runtime\\buildspec.yml",
+    "sanitized": false
+  },
+  {
+    "source": "output/team5-bastion-integration/runtime/install_terraform.py",
+    "public": "src\\team5-bastion-integration\\runtime\\install_terraform.py",
+    "sanitized": false
+  },
+  {
+    "source": "output/team5-bastion-integration/runtime/worker.py",
+    "public": "src\\team5-bastion-integration\\runtime\\worker.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-bastion-integration/runtime/terraform/.terraform.lock.hcl",
+    "public": "src\\team5-bastion-integration\\runtime\\terraform\\.terraform.lock.hcl",
+    "sanitized": false
+  },
+  {
+    "source": "output/team5-bastion-integration/runtime/terraform/bootstrap-monitoring.sh",
+    "public": "src\\team5-bastion-integration\\runtime\\terraform\\bootstrap-monitoring.sh",
+    "sanitized": false
+  },
+  {
+    "source": "output/team5-bastion-integration/runtime/terraform/bootstrap.sh",
+    "public": "src\\team5-bastion-integration\\runtime\\terraform\\bootstrap.sh",
+    "sanitized": false
+  },
+  {
+    "source": "output/team5-bastion-integration/runtime/terraform/main.tf",
+    "public": "src\\team5-bastion-integration\\runtime\\terraform\\main.tf",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-proxy-recovery/design.py",
+    "public": "src\\team5-proxy-recovery\\design.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-proxy-recovery/preview-definition.json",
+    "public": "src\\team5-proxy-recovery\\preview-definition.json",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-proxy-recovery/proxy-recovery.py",
+    "public": "src\\team5-proxy-recovery\\proxy-recovery.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-proxy-recovery/proxy_worker.py",
+    "public": "src\\team5-proxy-recovery\\proxy_worker.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-proxy-recovery/README.md",
+    "public": "src\\team5-proxy-recovery\\README.md",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-proxy-recovery/reference-recovery.json",
+    "public": "src\\team5-proxy-recovery\\reference-recovery.json",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-proxy-recovery/setup.py",
+    "public": "src\\team5-proxy-recovery\\setup.py",
+    "sanitized": false
+  },
+  {
+    "source": "output/team5-proxy-recovery/test_package.py",
+    "public": "src\\team5-proxy-recovery\\test_package.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-proxy-recovery/validate_sdk.py",
+    "public": "src\\team5-proxy-recovery\\validate_sdk.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-proxy-recovery/VALIDATION.md",
+    "public": "src\\team5-proxy-recovery\\VALIDATION.md",
+    "sanitized": false
+  },
+  {
+    "source": "output/team5-proxy-recovery/web_worker.py",
+    "public": "src\\team5-proxy-recovery\\web_worker.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-one-command-fix/expected-v2-worker.py",
+    "public": "src\\team5-one-command-fix\\expected-v2-worker.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-one-command-fix/one_command_preflight.py",
+    "public": "src\\team5-one-command-fix\\one_command_preflight.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-one-command-fix/README.md",
+    "public": "src\\team5-one-command-fix\\README.md",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-one-command-fix/setup.py",
+    "public": "src\\team5-one-command-fix\\setup.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-one-command-fix/test-baseline.json",
+    "public": "src\\team5-one-command-fix\\test-baseline.json",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-one-command-fix/test_fix.py",
+    "public": "src\\team5-one-command-fix\\test_fix.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-one-command-fix/web_worker.py",
+    "public": "src\\team5-one-command-fix\\web_worker.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-one-command-fix/fixtures/proxy-recovery.py",
+    "public": "src\\team5-one-command-fix\\fixtures\\proxy-recovery.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/team5-one-command-fix/fixtures/run-response.py",
+    "public": "src\\team5-one-command-fix\\fixtures\\run-response.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/setup-dashboard-tags.py",
+    "public": "src\\final-patches\\setup-dashboard-tags.py",
+    "sanitized": true
+  },
+  {
+    "source": "output/refresh-recovery-backups.py",
+    "public": "src\\final-patches\\refresh-recovery-backups.py",
+    "sanitized": true
+  }
+]
