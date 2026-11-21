@@ -1,0 +1,558 @@
+{
+  "Comment": "Restore EC2, reuse team5-rds-restore-test, configure WordPress, and verify recovery",
+  "QueryLanguage": "JSONPath",
+  "StartAt": "ChooseInstanceMode",
+  "TimeoutSeconds": 7200,
+  "States": {
+    "StartEc2Restore": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:backup:startRestoreJob",
+      "Parameters": {
+        "RecoveryPointArn.$": "$.Ec2RecoveryPointArn",
+        "IamRoleArn.$": "$.RestoreRoleArn",
+        "ResourceType": "EC2",
+        "Metadata.$": "$.Ec2Metadata",
+        "IdempotencyToken.$": "States.Format('ec2-{}', $.RunId)"
+      },
+      "ResultPath": "$.Ec2Restore",
+      "Next": "WaitForRestore"
+    },
+    "WaitForRestore": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "CheckEc2Restore"
+    },
+    "CheckEc2Restore": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:backup:describeRestoreJob",
+      "Parameters": {
+        "RestoreJobId.$": "$.Ec2Restore.RestoreJobId"
+      },
+      "ResultPath": "$.Ec2RestoreStatus",
+      "Next": "EvaluateRestore"
+    },
+    "EvaluateRestore": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.Ec2RestoreStatus.Status",
+          "StringEquals": "COMPLETED",
+          "Next": "ExtractInstanceId"
+        },
+        {
+          "Or": [
+            {
+              "Variable": "$.Ec2RestoreStatus.Status",
+              "StringEquals": "FAILED"
+            },
+            {
+              "Variable": "$.Ec2RestoreStatus.Status",
+              "StringEquals": "ABORTED"
+            }
+          ],
+          "Next": "RestoreFailed"
+        }
+      ],
+      "Default": "WaitForRestore"
+    },
+    "ExtractInstanceId": {
+      "Type": "Pass",
+      "Parameters": {
+        "InstanceId.$": "States.ArrayGetItem(States.StringSplit($.Ec2RestoreStatus.CreatedResourceArn, '/'), 1)"
+      },
+      "ResultPath": "$.Recovered",
+      "Next": "StartRdsRestore"
+    },
+    "DescribeRestoredDatabase": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBInstances",
+      "Parameters": {
+        "DbInstanceIdentifier.$": "$.RdsMetadata.DBInstanceIdentifier"
+      },
+      "ResultPath": "$.Database",
+      "Next": "CheckDatabaseReady"
+    },
+    "CheckDatabaseReady": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.Database.DbInstances[0].DbInstanceStatus",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.Database.DbInstances[0].DbInstanceStatus",
+              "StringEquals": "available"
+            },
+            {
+              "Variable": "$.Database.DbInstances[0].Endpoint.Address",
+              "IsPresent": true
+            }
+          ],
+          "Next": "PrepareConfiguration"
+        }
+      ],
+      "Default": "WaitForDatabase"
+    },
+    "WaitForDatabase": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "DescribeRestoredDatabase"
+    },
+    "PrepareConfiguration": {
+      "Type": "Pass",
+      "Parameters": {
+        "InstanceId.$": "$.Recovered.InstanceId",
+        "RestoreDbHost.$": "$.Database.DbInstances[0].Endpoint.Address"
+      },
+      "ResultPath": "$.Configuration",
+      "Next": "CheckSsmOnline"
+    },
+    "CheckSsmOnline": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ssm:describeInstanceInformation",
+      "Parameters": {
+        "Filters": [
+          {
+            "Key": "InstanceIds",
+            "Values.$": "States.Array($.Configuration.InstanceId)"
+          }
+        ]
+      },
+      "ResultPath": "$.Ssm",
+      "Next": "EvaluateSsm"
+    },
+    "EvaluateSsm": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.Ssm.InstanceInformationList[0].PingStatus",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.Ssm.InstanceInformationList[0].PingStatus",
+              "StringEquals": "Online"
+            }
+          ],
+          "Next": "ConfigureWordPress"
+        }
+      ],
+      "Default": "WaitForSsm"
+    },
+    "WaitForSsm": {
+      "Type": "Wait",
+      "Seconds": 15,
+      "Next": "CheckSsmOnline"
+    },
+    "ConfigureWordPress": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ssm:sendCommand",
+      "Parameters": {
+        "DocumentName": "team5-configure-recovery-wordpress",
+        "DocumentVersion": "2",
+        "InstanceIds.$": "States.Array($.Configuration.InstanceId)",
+        "Parameters": {
+          "RestoreDbHost.$": "States.Array($.Configuration.RestoreDbHost)"
+        },
+        "TimeoutSeconds": 120
+      },
+      "ResultSelector": {
+        "CommandId.$": "$.Command.CommandId"
+      },
+      "ResultPath": "$.Command",
+      "Next": "WaitForCommand"
+    },
+    "WaitForCommand": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "CheckCommand"
+    },
+    "CheckCommand": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ssm:getCommandInvocation",
+      "Parameters": {
+        "CommandId.$": "$.Command.CommandId",
+        "InstanceId.$": "$.Configuration.InstanceId",
+        "PluginName": "ConfigureAndVerify"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Ssm.InvocationDoesNotExist"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 6,
+          "BackoffRate": 1
+        }
+      ],
+      "ResultPath": "$.CommandResult",
+      "Next": "EvaluateCommand"
+    },
+    "EvaluateCommand": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.CommandResult.Status",
+              "StringEquals": "Success"
+            },
+            {
+              "Variable": "$.CommandResult.ResponseCode",
+              "NumericEquals": 0
+            }
+          ],
+          "Next": "RegisterRecoveryTarget"
+        },
+        {
+          "Or": [
+            {
+              "Variable": "$.CommandResult.Status",
+              "StringEquals": "Pending"
+            },
+            {
+              "Variable": "$.CommandResult.Status",
+              "StringEquals": "InProgress"
+            },
+            {
+              "Variable": "$.CommandResult.Status",
+              "StringEquals": "Delayed"
+            }
+          ],
+          "Next": "WaitForCommand"
+        }
+      ],
+      "Default": "ConfigurationFailed"
+    },
+    "RecoveryVerified": {
+      "Type": "Succeed"
+    },
+    "RestoreFailed": {
+      "Type": "Fail",
+      "Error": "BackupRestoreFailed",
+      "Cause": "Inspect Ec2RestoreStatus in the execution history."
+    },
+    "ConfigurationFailed": {
+      "Type": "Fail",
+      "Error": "RecoveryConfigurationFailed",
+      "Cause": "Inspect CommandResult and the SSM command output."
+    },
+    "ChooseInstanceMode": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.ExistingInstanceId",
+          "IsPresent": true,
+          "Next": "UseExistingInstance"
+        }
+      ],
+      "Default": "StartEc2Restore"
+    },
+    "UseExistingInstance": {
+      "Type": "Pass",
+      "Parameters": {
+        "InstanceId.$": "$.ExistingInstanceId"
+      },
+      "ResultPath": "$.Recovered",
+      "Next": "ChooseDatabaseMode"
+    },
+    "RegisterRecoveryTarget": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:registerTargets",
+      "Parameters": {
+        "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:targetgroup/project-recovery-tg/097ceff4e9b210a0",
+        "Targets": [
+          {
+            "Id.$": "$.Configuration.InstanceId",
+            "Port": 80
+          }
+        ]
+      },
+      "ResultPath": null,
+      "Next": "InitializeHealthCheck"
+    },
+    "InitializeHealthCheck": {
+      "Type": "Pass",
+      "Result": {
+        "Attempts": 0
+      },
+      "ResultPath": "$.AlbCheck",
+      "Next": "WaitForTargetHealth"
+    },
+    "WaitForTargetHealth": {
+      "Type": "Wait",
+      "Seconds": 15,
+      "Next": "CheckTargetHealth"
+    },
+    "CheckTargetHealth": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:describeTargetHealth",
+      "Parameters": {
+        "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:targetgroup/project-recovery-tg/097ceff4e9b210a0",
+        "Targets": [
+          {
+            "Id.$": "$.Configuration.InstanceId",
+            "Port": 80
+          }
+        ]
+      },
+      "ResultPath": "$.TargetHealth",
+      "Next": "CountHealthCheck"
+    },
+    "CountHealthCheck": {
+      "Type": "Pass",
+      "Parameters": {
+        "Attempts.$": "States.MathAdd($.AlbCheck.Attempts, 1)"
+      },
+      "ResultPath": "$.AlbCheck",
+      "Next": "EvaluateTargetHealth"
+    },
+    "EvaluateTargetHealth": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.TargetHealth.TargetHealthDescriptions[0].TargetHealth.State",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.TargetHealth.TargetHealthDescriptions[0].TargetHealth.State",
+              "StringEquals": "healthy"
+            }
+          ],
+          "Next": "ChooseCutover"
+        },
+        {
+          "Variable": "$.AlbCheck.Attempts",
+          "NumericGreaterThanEquals": 40,
+          "Next": "TargetHealthFailed"
+        }
+      ],
+      "Default": "WaitForTargetHealth"
+    },
+    "TargetHealthFailed": {
+      "Type": "Fail",
+      "Error": "RecoveryTargetNotHealthy",
+      "Cause": "Target did not become healthy within 40 checks. Inspect TargetHealth. Listener rules were not changed."
+    },
+    "ChooseCutover": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.Cutover",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.Cutover",
+              "IsBoolean": true
+            },
+            {
+              "Variable": "$.Cutover",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "InspectRecoveryTargets"
+        }
+      ],
+      "Default": "RecoveryVerified"
+    },
+    "InspectRecoveryTargets": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:describeTargetHealth",
+      "Parameters": {
+        "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:targetgroup/project-recovery-tg/097ceff4e9b210a0"
+      },
+      "ResultPath": "$.CutoverTargets",
+      "Next": "CountRecoveryTargets"
+    },
+    "CountRecoveryTargets": {
+      "Type": "Pass",
+      "Parameters": {
+        "Count.$": "States.ArrayLength($.CutoverTargets.TargetHealthDescriptions)"
+      },
+      "ResultPath": "$.CutoverTargetCount",
+      "Next": "CheckCutoverTarget"
+    },
+    "CheckCutoverTarget": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.CutoverTargetCount.Count",
+              "NumericEquals": 1
+            },
+            {
+              "Variable": "$.CutoverTargets.TargetHealthDescriptions[0].Target.Id",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.CutoverTargets.TargetHealthDescriptions[0].Target.Id",
+              "StringEqualsPath": "$.Configuration.InstanceId"
+            },
+            {
+              "Variable": "$.CutoverTargets.TargetHealthDescriptions[0].TargetHealth.State",
+              "StringEquals": "healthy"
+            }
+          ],
+          "Next": "SavePreviousListener"
+        }
+      ],
+      "Default": "CutoverBlocked"
+    },
+    "SavePreviousListener": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:describeListeners",
+      "Parameters": {
+        "ListenerArns": [
+          "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:listener/app/project-alb/10037eb6c994f7f5/14f140be8ffa4d1b"
+        ]
+      },
+      "ResultPath": "$.ListenerBeforeCutover",
+      "Next": "SwitchDefaultTarget"
+    },
+    "SwitchDefaultTarget": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:modifyListener",
+      "Parameters": {
+        "ListenerArn": "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:listener/app/project-alb/10037eb6c994f7f5/14f140be8ffa4d1b",
+        "DefaultActions": [
+          {
+            "Type": "forward",
+            "TargetGroupArn": "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:targetgroup/project-recovery-tg/097ceff4e9b210a0"
+          }
+        ]
+      },
+      "ResultPath": "$.ListenerModification",
+      "Next": "ReadListenerAfterCutover"
+    },
+    "ReadListenerAfterCutover": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:elasticloadbalancingv2:describeListeners",
+      "Parameters": {
+        "ListenerArns": [
+          "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:listener/app/project-alb/10037eb6c994f7f5/14f140be8ffa4d1b"
+        ]
+      },
+      "ResultPath": "$.ListenerAfterCutover",
+      "Next": "VerifyListenerTarget"
+    },
+    "VerifyListenerTarget": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.ListenerAfterCutover.Listeners[0].DefaultActions[0].TargetGroupArn",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.ListenerAfterCutover.Listeners[0].DefaultActions[0].TargetGroupArn",
+              "StringEquals": "arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:targetgroup/project-recovery-tg/097ceff4e9b210a0"
+            }
+          ],
+          "Next": "ServiceCutoverCompleted"
+        }
+      ],
+      "Default": "CutoverVerificationFailed"
+    },
+    "ServiceCutoverCompleted": {
+      "Type": "Succeed"
+    },
+    "CutoverBlocked": {
+      "Type": "Fail",
+      "Error": "RecoveryTargetGroupNeedsReview",
+      "Cause": "Expected exactly one registered target: the selected healthy EC2. Review CutoverTargets. Listener was not changed."
+    },
+    "CutoverVerificationFailed": {
+      "Type": "Fail",
+      "Error": "ListenerVerificationFailed",
+      "Cause": "Listener modification was requested but verification failed. Inspect current listener and ListenerBeforeCutover before rollback."
+    },
+    "StartRdsRestore": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:backup:startRestoreJob",
+      "Parameters": {
+        "RecoveryPointArn.$": "$.RdsRecoveryPointArn",
+        "IamRoleArn.$": "$.RestoreRoleArn",
+        "ResourceType": "RDS",
+        "Metadata.$": "$.RdsMetadata",
+        "IdempotencyToken.$": "States.Format('rds-{}', $.RunId)"
+      },
+      "ResultPath": "$.RdsRestore",
+      "Next": "WaitForRdsRestore"
+    },
+    "WaitForRdsRestore": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "CheckRdsRestore"
+    },
+    "CheckRdsRestore": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:backup:describeRestoreJob",
+      "Parameters": {
+        "RestoreJobId.$": "$.RdsRestore.RestoreJobId"
+      },
+      "ResultPath": "$.RdsRestoreStatus",
+      "Next": "EvaluateRdsRestore"
+    },
+    "EvaluateRdsRestore": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RdsRestoreStatus.Status",
+          "StringEquals": "COMPLETED",
+          "Next": "DescribeRestoredDatabase"
+        },
+        {
+          "Or": [
+            {
+              "Variable": "$.RdsRestoreStatus.Status",
+              "StringEquals": "FAILED"
+            },
+            {
+              "Variable": "$.RdsRestoreStatus.Status",
+              "StringEquals": "ABORTED"
+            }
+          ],
+          "Next": "RdsRestoreFailed"
+        }
+      ],
+      "Default": "WaitForRdsRestore"
+    },
+    "RdsRestoreFailed": {
+      "Type": "Fail",
+      "Error": "RdsBackupRestoreFailed",
+      "Cause": "Inspect RdsRestoreStatus.StatusMessage. No service cutover was performed."
+    },
+    "ChooseDatabaseMode": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.ReuseRestoredDb",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.ReuseRestoredDb",
+              "IsBoolean": true
+            },
+            {
+              "Variable": "$.ReuseRestoredDb",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "DescribeRestoredDatabase"
+        }
+      ],
+      "Default": "StartRdsRestore"
+    }
+  }
+}
