@@ -1,0 +1,997 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Team5 bastion automation infrastructure; no instance creation or isolation at deployment",
+  "Resources": {
+    "Storage": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": "team5-bastion-integration-123456789012-ap-northeast-2",
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "IgnorePublicAcls": true,
+          "BlockPublicPolicy": true,
+          "RestrictPublicBuckets": true
+        }
+      }
+    },
+    "BucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "Storage"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                "arn:aws:s3:::team5-bastion-integration-123456789012-ap-northeast-2",
+                "arn:aws:s3:::team5-bastion-integration-123456789012-ap-northeast-2/*"
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Lock": {
+      "Type": "AWS::DynamoDB::Table",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "TableName": "team5-bastion-integration",
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "LockId",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "LockId",
+            "KeyType": "HASH"
+          }
+        ]
+      }
+    },
+    "Quarantine": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Team5 operating bastion quarantine; no allowed ingress or egress",
+        "VpcId": "vpc-000000000000021c2",
+        "SecurityGroupIngress": [],
+        "SecurityGroupEgress": [],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "team5-operating-bastion-quarantine"
+          }
+        ]
+      }
+    },
+    "BuildRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "team5-bastion-integration-build-role",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "codebuild.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole",
+              "Condition": {
+                "StringEquals": {
+                  "aws:SourceAccount": "123456789012"
+                },
+                "ArnEquals": {
+                  "aws:SourceArn": "arn:aws:codebuild:ap-northeast-2:123456789012:project/team5-bastion-integration"
+                }
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "team5-bastion-integration",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:Describe*"
+                  ],
+                  "Resource": "*",
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestedRegion": "ap-northeast-2"
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:RunInstances"
+                  ],
+                  "Resource": [
+                    "arn:aws:ec2:ap-northeast-2::image/ami-00000000000000cac",
+                    "arn:aws:ec2:ap-northeast-2:123456789012:subnet/subnet-0000000000000960f",
+                    "arn:aws:ec2:ap-northeast-2:123456789012:security-group/sg-000000000000039bc",
+                    "arn:aws:ec2:ap-northeast-2:123456789012:security-group/sg-0000000000000bd52",
+                    "arn:aws:ec2:ap-northeast-2:123456789012:key-pair/team5-key",
+                    "arn:aws:ec2:ap-northeast-2:123456789012:instance/*",
+                    "arn:aws:ec2:ap-northeast-2:123456789012:volume/*",
+                    "arn:aws:ec2:ap-northeast-2:123456789012:network-interface/*"
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "aws:RequestedRegion": "ap-northeast-2"
+                    },
+                    "StringEqualsIfExists": {
+                      "ec2:InstanceType": "t3.micro"
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:CreateTags"
+                  ],
+                  "Resource": [
+                    "arn:aws:ec2:ap-northeast-2:123456789012:instance/*",
+                    "arn:aws:ec2:ap-northeast-2:123456789012:volume/*"
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "ec2:CreateAction": "RunInstances"
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:PassRole"
+                  ],
+                  "Resource": "arn:aws:iam::123456789012:role/team5-bastion-role",
+                  "Condition": {
+                    "StringEquals": {
+                      "iam:PassedToService": "ec2.amazonaws.com"
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:GetRole"
+                  ],
+                  "Resource": "arn:aws:iam::123456789012:role/team5-bastion-role"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:GetInstanceProfile"
+                  ],
+                  "Resource": "arn:aws:iam::123456789012:instance-profile/team5-bastion-role"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:ListBucket",
+                    "s3:GetBucketLocation",
+                    "s3:GetBucketVersioning",
+                    "s3:GetBucketAcl"
+                  ],
+                  "Resource": "arn:aws:s3:::team5-bastion-integration-123456789012-ap-northeast-2"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:PutObject"
+                  ],
+                  "Resource": "arn:aws:s3:::team5-bastion-integration-123456789012-ap-northeast-2/*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:DeleteObject"
+                  ],
+                  "Resource": "arn:aws:s3:::team5-bastion-integration-123456789012-ap-northeast-2/terraform/*.tflock"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:DeleteItem"
+                  ],
+                  "Resource": "arn:aws:dynamodb:ap-northeast-2:123456789012:table/team5-bastion-integration"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": "arn:aws:logs:ap-northeast-2:123456789012:log-group:/aws/codebuild/team5-bastion-integration:*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:FilterLogEvents"
+                  ],
+                  "Resource": "arn:aws:logs:ap-northeast-2:123456789012:log-group:/project/security/bastion-auth:*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ssm:DescribeInstanceInformation",
+                    "ssm:GetCommandInvocation"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ssm:SendCommand"
+                  ],
+                  "Resource": "arn:aws:ssm:ap-northeast-2::document/AWS-RunShellScript"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ssm:SendCommand"
+                  ],
+                  "Resource": "arn:aws:ec2:ap-northeast-2:123456789012:instance/*",
+                  "Condition": {
+                    "StringEquals": {
+                      "ssm:resourceTag/ManagedBy": "team5-bastion-integration"
+                    }
+                  }
+                },
+                {
+                  "Effect": "Deny",
+                  "Action": [
+                    "ec2:TerminateInstances",
+                    "ec2:StopInstances"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "Build": {
+      "Type": "AWS::CodeBuild::Project",
+      "Properties": {
+        "Name": "team5-bastion-integration",
+        "ServiceRole": {
+          "Fn::GetAtt": [
+            "BuildRole",
+            "Arn"
+          ]
+        },
+        "ConcurrentBuildLimit": 1,
+        "TimeoutInMinutes": 55,
+        "QueuedTimeoutInMinutes": 10,
+        "Artifacts": {
+          "Type": "NO_ARTIFACTS"
+        },
+        "Source": {
+          "Type": "S3",
+          "Location": "team5-bastion-integration-123456789012-ap-northeast-2/source/runtime.zip",
+          "BuildSpec": "buildspec.yml"
+        },
+        "Environment": {
+          "Type": "LINUX_CONTAINER",
+          "ComputeType": "BUILD_GENERAL1_SMALL",
+          "Image": "aws/codebuild/standard:7.0",
+          "PrivilegedMode": false,
+          "EnvironmentVariables": [
+            {
+              "Name": "BUCKET",
+              "Value": "team5-bastion-integration-123456789012-ap-northeast-2"
+            },
+            {
+              "Name": "LOCK_TABLE",
+              "Value": "team5-bastion-integration"
+            },
+            {
+              "Name": "QUARANTINE_SG",
+              "Value": {
+                "Ref": "Quarantine"
+              }
+            },
+            {
+              "Name": "MODE",
+              "Value": "UNSET"
+            },
+            {
+              "Name": "EXECUTION_ID",
+              "Value": "UNSET"
+            }
+          ]
+        }
+      }
+    },
+    "WebCore": {
+      "Type": "AWS::StepFunctions::StateMachine",
+      "Properties": {
+        "StateMachineName": "team5-web-response-core",
+        "StateMachineType": "STANDARD",
+        "RoleArn": "arn:aws:iam::123456789012:role/service-role/StepFunctions-ec2-isolation-workflow-role-1rieft0r3",
+        "Definition": {
+          "Comment": "Designated web instance isolation, verification, recovery and ALB cutover",
+          "QueryLanguage": "JSONPath",
+          "StartAt": "ValidateTarget",
+          "TimeoutSeconds": 9000,
+          "States": {
+            "ValidateTarget": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Variable": "$.detail.target_instance_id",
+                      "IsPresent": true
+                    },
+                    {
+                      "Variable": "$.detail.target_instance_id",
+                      "StringEquals": "i-000000000000071f8"
+                    },
+                    {
+                      "Variable": "$.detail.event_type",
+                      "IsPresent": true
+                    },
+                    {
+                      "Variable": "$.detail.event_type",
+                      "StringEquals": "FILE_INTEGRITY_VIOLATION"
+                    },
+                    {
+                      "Variable": "$.detail.severity",
+                      "IsPresent": true
+                    },
+                    {
+                      "Variable": "$.detail.severity",
+                      "StringEquals": "CRITICAL"
+                    }
+                  ],
+                  "Next": "ChooseExecutionMode"
+                }
+              ],
+              "Default": "InvalidInput"
+            },
+            "ChooseExecutionMode": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Variable": "$.detail.execute_isolation",
+                      "IsPresent": true
+                    },
+                    {
+                      "Variable": "$.detail.execute_isolation",
+                      "BooleanEquals": true
+                    }
+                  ],
+                  "Next": "CheckManagementPlan"
+                },
+                {
+                  "Variable": "$.detail.execute_isolation",
+                  "IsPresent": false,
+                  "Next": "PreviewOnly"
+                },
+                {
+                  "Variable": "$.detail.execute_isolation",
+                  "BooleanEquals": false,
+                  "Next": "PreviewOnly"
+                }
+              ],
+              "Default": "InvalidInput"
+            },
+            "CheckManagementPlan": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Variable": "$.detail.confirm_management_plan",
+                      "IsPresent": true
+                    },
+                    {
+                      "Variable": "$.detail.confirm_management_plan",
+                      "BooleanEquals": true
+                    }
+                  ],
+                  "Next": "BackupPreflightNeeded"
+                }
+              ],
+              "Default": "ManagementPlanRequired"
+            },
+            "PreviewOnly": {
+              "Type": "Pass",
+              "Result": {
+                "Mode": "PREVIEW",
+                "Message": "No isolation or recovery was executed."
+              },
+              "ResultPath": "$.preview",
+              "End": true
+            },
+            "CheckExistingIsolation": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "TimeoutSeconds": 90,
+              "Parameters": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:123456789012:function:ec2-isolation-validate-lambda",
+                "Payload": {
+                  "instance_id.$": "$.detail.target_instance_id"
+                }
+              },
+              "ResultSelector": {
+                "Result.$": "States.StringToJson($.Payload.body)"
+              },
+              "ResultPath": "$.precheck",
+              "Next": "EvaluateExistingIsolation"
+            },
+            "EvaluateExistingIsolation": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Variable": "$.precheck.Result.status",
+                      "StringEquals": "PASS"
+                    },
+                    {
+                      "Variable": "$.precheck.Result.verified",
+                      "BooleanEquals": true
+                    }
+                  ],
+                  "Next": "ChooseRecovery"
+                },
+                {
+                  "Variable": "$.precheck.Result.status",
+                  "StringEquals": "IN_PROGRESS",
+                  "Next": "InitializeVerification"
+                },
+                {
+                  "And": [
+                    {
+                      "Variable": "$.precheck.Result.status",
+                      "StringEquals": "FAIL"
+                    },
+                    {
+                      "Variable": "$.precheck.Result.checks.instance_running",
+                      "BooleanEquals": true
+                    },
+                    {
+                      "Variable": "$.precheck.Result.checks.normal_sg_removed",
+                      "BooleanEquals": false
+                    },
+                    {
+                      "Variable": "$.precheck.Result.checks.isolation_sg_attached",
+                      "BooleanEquals": false
+                    }
+                  ],
+                  "Next": "IsolateEC2"
+                }
+              ],
+              "Default": "UnexpectedIsolationState"
+            },
+            "IsolateEC2": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "TimeoutSeconds": 120,
+              "Parameters": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:123456789012:function:ec2-isolation-lambda",
+                "Payload": {
+                  "detail.$": "$.detail",
+                  "execution_options": {
+                    "isolation_mode": "EXECUTE",
+                    "confirm_management_plan.$": "$.detail.confirm_management_plan"
+                  }
+                }
+              },
+              "ResultPath": "$.isolation_result",
+              "Next": "InitializeVerification"
+            },
+            "InitializeVerification": {
+              "Type": "Pass",
+              "Result": {
+                "Attempts": 0
+              },
+              "ResultPath": "$.verification_control",
+              "Next": "WaitForIsolation"
+            },
+            "WaitForIsolation": {
+              "Type": "Wait",
+              "Seconds": 15,
+              "Next": "VerifyIsolation"
+            },
+            "VerifyIsolation": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "TimeoutSeconds": 90,
+              "Parameters": {
+                "FunctionName": "arn:aws:lambda:ap-northeast-2:123456789012:function:ec2-isolation-validate-lambda",
+                "Payload": {
+                  "instance_id.$": "$.detail.target_instance_id"
+                }
+              },
+              "ResultSelector": {
+                "Result.$": "States.StringToJson($.Payload.body)"
+              },
+              "ResultPath": "$.verification",
+              "Next": "CountVerification"
+            },
+            "CountVerification": {
+              "Type": "Pass",
+              "Parameters": {
+                "Attempts.$": "States.MathAdd($.verification_control.Attempts, 1)"
+              },
+              "ResultPath": "$.verification_control",
+              "Next": "EvaluateVerification"
+            },
+            "EvaluateVerification": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Variable": "$.verification.Result.status",
+                      "StringEquals": "PASS"
+                    },
+                    {
+                      "Variable": "$.verification.Result.verified",
+                      "BooleanEquals": true
+                    }
+                  ],
+                  "Next": "ChooseRecovery"
+                },
+                {
+                  "And": [
+                    {
+                      "Variable": "$.verification.Result.status",
+                      "StringEquals": "IN_PROGRESS"
+                    },
+                    {
+                      "Variable": "$.verification_control.Attempts",
+                      "NumericLessThan": 40
+                    }
+                  ],
+                  "Next": "WaitForIsolation"
+                },
+                {
+                  "Variable": "$.verification.Result.status",
+                  "StringEquals": "IN_PROGRESS",
+                  "Next": "IsolationVerificationTimedOut"
+                }
+              ],
+              "Default": "IsolationVerificationFailed"
+            },
+            "ChooseRecovery": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Variable": "$.detail.execute_recovery_test",
+                      "IsPresent": true
+                    },
+                    {
+                      "Variable": "$.detail.execute_recovery_test",
+                      "BooleanEquals": true
+                    }
+                  ],
+                  "Next": "PrepareNewRecoveryInput"
+                }
+              ],
+              "Default": "IsolationOnlyCompleted"
+            },
+            "RunRecoveryWorkflow": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "TimeoutSeconds": 7500,
+              "Parameters": {
+                "StateMachineArn": "arn:aws:states:ap-northeast-2:123456789012:stateMachine:team5-recovery-workflow",
+                "Name.$": "States.Format('isolation-{}', $$.Execution.Name)",
+                "Input.$": "$.recovery_request"
+              },
+              "ResultSelector": {
+                "ExecutionArn.$": "$.ExecutionArn",
+                "Status.$": "$.Status"
+              },
+              "ResultPath": "$.recovery_result",
+              "End": true
+            },
+            "IsolationOnlyCompleted": {
+              "Type": "Succeed"
+            },
+            "InvalidInput": {
+              "Type": "Fail",
+              "Error": "InvalidTestInput",
+              "Cause": "Expected designated web instance, critical file-integrity event and boolean execution flags."
+            },
+            "ManagementPlanRequired": {
+              "Type": "Fail",
+              "Error": "ManagementPlanNotConfirmed",
+              "Cause": "Actual isolation requires detail.confirm_management_plan to be boolean true."
+            },
+            "UnexpectedIsolationState": {
+              "Type": "Fail",
+              "Error": "UnexpectedIsolationState",
+              "Cause": "Inspect precheck.Result. No automatic isolation or rollback was attempted."
+            },
+            "IsolationVerificationFailed": {
+              "Type": "Fail",
+              "Error": "IsolationVerificationFailed",
+              "Cause": "Inspect verification.Result. Recovery was not started."
+            },
+            "IsolationVerificationTimedOut": {
+              "Type": "Fail",
+              "Error": "IsolationVerificationTimedOut",
+              "Cause": "Isolation remained IN_PROGRESS for 40 verification attempts. Recovery was not started."
+            },
+            "PrepareNewRecoveryInput": {
+              "Type": "Pass",
+              "Parameters": {
+                "Ec2RecoveryPointArn": "arn:aws:ec2:ap-northeast-2::image/ami-0000000000000cbdb",
+                "RdsRecoveryPointArn": "arn:aws:rds:ap-northeast-2:123456789012:snapshot:awsbackup:job-00000000-0000-4000-8000-ffb5441f6020",
+                "RestoreRoleArn": "arn:aws:iam::123456789012:role/service-role/AWSBackupDefaultServiceRole",
+                "Ec2Metadata": {
+                  "InstanceType": "t3.small",
+                  "KeyName": "team5-key",
+                  "IamInstanceProfileName": "project-ec2-web-role",
+                  "RequireIMDSv2": "true",
+                  "EbsOptimized": "true",
+                  "BlockDeviceMappings": "[{\"DeviceName\":\"/dev/xvda\",\"Ebs\":{\"DeleteOnTermination\":true,\"Iops\":3000,\"VolumeSize\":20,\"VolumeType\":\"gp3\",\"Throughput\":125,\"Encrypted\":false}}]",
+                  "CreditSpecification": "{\"CpuCredits\":\"standard\"}",
+                  "InstanceInitiatedShutdownBehavior": "stop",
+                  "NetworkInterfaces": "[{\"DeviceIndex\": 0, \"DeleteOnTermination\": true, \"AssociatePublicIpAddress\": false, \"SubnetId\": \"subnet-00000000000009131\", \"Groups\": [\"sg-00000000000001a89\"]}]"
+                },
+                "RdsMetadata": {
+                  "AllocatedStorage": "20",
+                  "AutoMinorVersionUpgrade": "true",
+                  "AvailabilityZone": "ap-northeast-2c",
+                  "CopyTagsToSnapshot": "true",
+                  "DBInstanceClass": "db.t4g.micro",
+                  "DBParameterGroupName": "default.mysql8.4",
+                  "DBSubnetGroupName": "team5-rds-subnet-group",
+                  "DeletionProtection": "false",
+                  "EnableCloudwatchLogsExports": "[\"error\",\"iam-db-auth-error\"]",
+                  "EnableIAMDatabaseAuthentication": "false",
+                  "Engine": "mysql",
+                  "IOPS": "3000",
+                  "LicenseModel": "general-public-license",
+                  "MultiAZ": "false",
+                  "OptionGroupName": "default:mysql-8-4",
+                  "Port": "3306",
+                  "ProcessorFeatures": "[]",
+                  "PubliclyAccessible": "false",
+                  "StorageType": "gp3",
+                  "VpcSecurityGroupIds": "[\"sg-00000000000002606\"]",
+                  "DBInstanceIdentifier.$": "States.Format('team5-rds-restore-{}', States.UUID())"
+                },
+                "RunId.$": "States.UUID()",
+                "Cutover": true,
+                "AWS_STEP_FUNCTIONS_STARTED_BY_EXECUTION_ID.$": "$$.Execution.Id"
+              },
+              "ResultPath": "$.recovery_request",
+              "Next": "RunRecoveryWorkflow"
+            },
+            "BackupPreflightNeeded": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Variable": "$.detail.execute_recovery_test",
+                      "IsPresent": true
+                    },
+                    {
+                      "Variable": "$.detail.execute_recovery_test",
+                      "BooleanEquals": true
+                    }
+                  ],
+                  "Next": "PreflightEc2Point"
+                }
+              ],
+              "Default": "CheckExistingIsolation"
+            },
+            "PreflightEc2Point": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:backup:describeRecoveryPoint",
+              "Parameters": {
+                "BackupVaultName": "team5-backup-vault-iac",
+                "RecoveryPointArn": "arn:aws:ec2:ap-northeast-2::image/ami-0000000000000cbdb"
+              },
+              "ResultPath": "$.backup_preflight",
+              "TimeoutSeconds": 60,
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.backup_preflight_error",
+                  "Next": "BackupPreflightFailed"
+                }
+              ],
+              "Next": "PreflightEc2PointReady"
+            },
+            "PreflightEc2PointReady": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Or": [
+                        {
+                          "Variable": "$.backup_preflight.Status",
+                          "StringEquals": "COMPLETED"
+                        },
+                        {
+                          "Variable": "$.backup_preflight.Status",
+                          "StringEquals": "AVAILABLE"
+                        }
+                      ]
+                    },
+                    {
+                      "Variable": "$.backup_preflight.ResourceArn",
+                      "IsPresent": true
+                    },
+                    {
+                      "Variable": "$.backup_preflight.ResourceArn",
+                      "StringEquals": "arn:aws:ec2:ap-northeast-2:123456789012:instance/i-000000000000071f8"
+                    }
+                  ],
+                  "Next": "PreflightEc2Image"
+                }
+              ],
+              "Default": "BackupPreflightFailed"
+            },
+            "PreflightEc2Image": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:ec2:describeImages",
+              "Parameters": {
+                "ImageIds": [
+                  "ami-0000000000000cbdb"
+                ]
+              },
+              "ResultPath": "$.backup_preflight",
+              "TimeoutSeconds": 60,
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.backup_preflight_error",
+                  "Next": "BackupPreflightFailed"
+                }
+              ],
+              "Next": "PreflightEc2ImageReady"
+            },
+            "PreflightEc2ImageReady": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Variable": "$.backup_preflight.Images[0].State",
+                      "IsPresent": true
+                    },
+                    {
+                      "Variable": "$.backup_preflight.Images[0].State",
+                      "StringEquals": "available"
+                    }
+                  ],
+                  "Next": "PreflightRdsPoint"
+                }
+              ],
+              "Default": "BackupPreflightFailed"
+            },
+            "PreflightRdsPoint": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:backup:describeRecoveryPoint",
+              "Parameters": {
+                "BackupVaultName": "team5-backup-vault-iac",
+                "RecoveryPointArn": "arn:aws:rds:ap-northeast-2:123456789012:snapshot:awsbackup:job-00000000-0000-4000-8000-ffb5441f6020"
+              },
+              "ResultPath": "$.backup_preflight",
+              "TimeoutSeconds": 60,
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.backup_preflight_error",
+                  "Next": "BackupPreflightFailed"
+                }
+              ],
+              "Next": "PreflightRdsPointReady"
+            },
+            "PreflightRdsPointReady": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Or": [
+                        {
+                          "Variable": "$.backup_preflight.Status",
+                          "StringEquals": "COMPLETED"
+                        },
+                        {
+                          "Variable": "$.backup_preflight.Status",
+                          "StringEquals": "AVAILABLE"
+                        }
+                      ]
+                    },
+                    {
+                      "Variable": "$.backup_preflight.ResourceArn",
+                      "IsPresent": true
+                    },
+                    {
+                      "Variable": "$.backup_preflight.ResourceArn",
+                      "StringEquals": "arn:aws:rds:ap-northeast-2:123456789012:db:team5-rds-mysql"
+                    }
+                  ],
+                  "Next": "PreflightRdsSnapshot"
+                }
+              ],
+              "Default": "BackupPreflightFailed"
+            },
+            "PreflightRdsSnapshot": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::aws-sdk:rds:describeDBSnapshots",
+              "Parameters": {
+                "DbSnapshotIdentifier": "arn:aws:rds:ap-northeast-2:123456789012:snapshot:awsbackup:job-00000000-0000-4000-8000-ffb5441f6020"
+              },
+              "ResultPath": "$.backup_preflight",
+              "TimeoutSeconds": 60,
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.backup_preflight_error",
+                  "Next": "BackupPreflightFailed"
+                }
+              ],
+              "Next": "PreflightRdsSnapshotReady"
+            },
+            "PreflightRdsSnapshotReady": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Variable": "$.backup_preflight.DbSnapshots[0].Status",
+                      "IsPresent": true
+                    },
+                    {
+                      "Variable": "$.backup_preflight.DbSnapshots[0].Status",
+                      "StringEquals": "available"
+                    }
+                  ],
+                  "Next": "CheckExistingIsolation"
+                }
+              ],
+              "Default": "BackupPreflightFailed"
+            },
+            "BackupPreflightFailed": {
+              "Type": "Fail",
+              "Error": "BackupPreflightFailed",
+              "Cause": "Backup check failed before isolation. Inspect backup_preflight and backup_preflight_error. This execution did not invoke isolation."
+            }
+          }
+        }
+      }
+    },
+    "ParentPermission": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "team5-bastion-integration-orchestration",
+        "Roles": [
+          "StepFunctions-ec2-isolation-workflow-role-1rieft0r3"
+        ],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "codebuild:StartBuild",
+                "codebuild:BatchGetBuilds",
+                "codebuild:StopBuild"
+              ],
+              "Resource": "arn:aws:codebuild:ap-northeast-2:123456789012:project/team5-bastion-integration"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "states:StartExecution"
+              ],
+              "Resource": "arn:aws:states:ap-northeast-2:123456789012:stateMachine:team5-web-response-core"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "states:DescribeExecution",
+                "states:StopExecution"
+              ],
+              "Resource": "arn:aws:states:ap-northeast-2:123456789012:execution:team5-web-response-core:*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "events:PutTargets",
+                "events:PutRule",
+                "events:DescribeRule"
+              ],
+              "Resource": [
+                "arn:aws:events:ap-northeast-2:123456789012:rule/StepFunctionsGetEventForCodeBuildStartBuildRule",
+                "arn:aws:events:ap-northeast-2:123456789012:rule/StepFunctionsGetEventsForStepFunctionsExecutionRule"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "ec2:ModifyInstanceAttribute"
+              ],
+              "Resource": [
+                "arn:aws:ec2:ap-northeast-2:123456789012:instance/i-0000000000000c871",
+                {
+                  "Fn::Sub": "arn:aws:ec2:ap-northeast-2:123456789012:security-group/${Quarantine}"
+                }
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "dynamodb:DeleteItem"
+              ],
+              "Resource": "arn:aws:dynamodb:ap-northeast-2:123456789012:table/team5-bastion-integration"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "QuarantineSG": {
+      "Value": {
+        "Ref": "Quarantine"
+      }
+    }
+  }
+}

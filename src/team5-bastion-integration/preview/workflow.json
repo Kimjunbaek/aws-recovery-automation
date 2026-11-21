@@ -1,0 +1,551 @@
+{
+  "Comment": "Web response and operating bastion quarantine/recreation; fixed targets; no automatic rollback",
+  "QueryLanguage": "JSONPath",
+  "StartAt": "ValidateTarget",
+  "TimeoutSeconds": 14400,
+  "States": {
+    "InvalidInput": {
+      "Type": "Fail",
+      "Error": "InvalidTestInput",
+      "Cause": "Expected designated web instance, critical file-integrity event and boolean execution flags."
+    },
+    "PreflightRdsPoint": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:backup:describeRecoveryPoint",
+      "Parameters": {
+        "BackupVaultName": "team5-backup-vault-iac",
+        "RecoveryPointArn": "arn:aws:rds:ap-northeast-2:123456789012:snapshot:awsbackup:job-00000000-0000-4000-8000-ffb5441f6020"
+      },
+      "ResultPath": "$.backup_preflight",
+      "TimeoutSeconds": 60,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.backup_preflight_error",
+          "Next": "BackupPreflightFailed"
+        }
+      ],
+      "Next": "PreflightRdsPointReady"
+    },
+    "PreflightRdsSnapshot": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBSnapshots",
+      "Parameters": {
+        "DbSnapshotIdentifier": "arn:aws:rds:ap-northeast-2:123456789012:snapshot:awsbackup:job-00000000-0000-4000-8000-ffb5441f6020"
+      },
+      "ResultPath": "$.backup_preflight",
+      "TimeoutSeconds": 60,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.backup_preflight_error",
+          "Next": "BackupPreflightFailed"
+        }
+      ],
+      "Next": "PreflightRdsSnapshotReady"
+    },
+    "ChooseExecutionMode": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.detail.execute_isolation",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.detail.execute_isolation",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "CheckManagementPlan"
+        },
+        {
+          "Variable": "$.detail.execute_isolation",
+          "IsPresent": false,
+          "Next": "PreviewOnly"
+        },
+        {
+          "Variable": "$.detail.execute_isolation",
+          "BooleanEquals": false,
+          "Next": "PreviewOnly"
+        }
+      ],
+      "Default": "InvalidInput"
+    },
+    "PreflightEc2Point": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:backup:describeRecoveryPoint",
+      "Parameters": {
+        "BackupVaultName": "team5-backup-vault-iac",
+        "RecoveryPointArn": "arn:aws:ec2:ap-northeast-2::image/ami-0000000000000cbdb"
+      },
+      "ResultPath": "$.backup_preflight",
+      "TimeoutSeconds": 60,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.backup_preflight_error",
+          "Next": "BackupPreflightFailed"
+        }
+      ],
+      "Next": "PreflightEc2PointReady"
+    },
+    "PreflightEc2Image": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ec2:describeImages",
+      "Parameters": {
+        "ImageIds": [
+          "ami-0000000000000cbdb"
+        ]
+      },
+      "ResultPath": "$.backup_preflight",
+      "TimeoutSeconds": 60,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.backup_preflight_error",
+          "Next": "BackupPreflightFailed"
+        }
+      ],
+      "Next": "PreflightEc2ImageReady"
+    },
+    "ManagementPlanRequired": {
+      "Type": "Fail",
+      "Error": "ManagementPlanNotConfirmed",
+      "Cause": "Actual isolation requires detail.confirm_management_plan to be boolean true."
+    },
+    "ValidateTarget": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.detail.target_instance_id",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.detail.target_instance_id",
+              "StringEquals": "i-000000000000071f8"
+            },
+            {
+              "Variable": "$.detail.event_type",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.detail.event_type",
+              "StringEquals": "FILE_INTEGRITY_VIOLATION"
+            },
+            {
+              "Variable": "$.detail.severity",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.detail.severity",
+              "StringEquals": "CRITICAL"
+            }
+          ],
+          "Next": "ChooseExecutionMode"
+        }
+      ],
+      "Default": "InvalidInput"
+    },
+    "PreflightEc2PointReady": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Or": [
+                {
+                  "Variable": "$.backup_preflight.Status",
+                  "StringEquals": "COMPLETED"
+                },
+                {
+                  "Variable": "$.backup_preflight.Status",
+                  "StringEquals": "AVAILABLE"
+                }
+              ]
+            },
+            {
+              "Variable": "$.backup_preflight.ResourceArn",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.backup_preflight.ResourceArn",
+              "StringEquals": "arn:aws:ec2:ap-northeast-2:123456789012:instance/i-000000000000071f8"
+            }
+          ],
+          "Next": "PreflightEc2Image"
+        }
+      ],
+      "Default": "BackupPreflightFailed"
+    },
+    "CheckManagementPlan": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.detail.confirm_management_plan",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.detail.confirm_management_plan",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "BackupPreflightNeeded"
+        }
+      ],
+      "Default": "ManagementPlanRequired"
+    },
+    "PreflightEc2ImageReady": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.backup_preflight.Images[0].State",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.backup_preflight.Images[0].State",
+              "StringEquals": "available"
+            }
+          ],
+          "Next": "PreflightRdsPoint"
+        }
+      ],
+      "Default": "BackupPreflightFailed"
+    },
+    "PreflightRdsSnapshotReady": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.backup_preflight.DbSnapshots[0].Status",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.backup_preflight.DbSnapshots[0].Status",
+              "StringEquals": "available"
+            }
+          ],
+          "Next": "PrepareBastion"
+        }
+      ],
+      "Default": "BackupPreflightFailed"
+    },
+    "BackupPreflightNeeded": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.detail.execute_recovery_test",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.detail.execute_recovery_test",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "PreflightEc2Point"
+        }
+      ],
+      "Default": "RunWebOnly"
+    },
+    "PreflightRdsPointReady": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Or": [
+                {
+                  "Variable": "$.backup_preflight.Status",
+                  "StringEquals": "COMPLETED"
+                },
+                {
+                  "Variable": "$.backup_preflight.Status",
+                  "StringEquals": "AVAILABLE"
+                }
+              ]
+            },
+            {
+              "Variable": "$.backup_preflight.ResourceArn",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.backup_preflight.ResourceArn",
+              "StringEquals": "arn:aws:rds:ap-northeast-2:123456789012:db:team5-rds-mysql"
+            }
+          ],
+          "Next": "PreflightRdsSnapshot"
+        }
+      ],
+      "Default": "BackupPreflightFailed"
+    },
+    "BackupPreflightFailed": {
+      "Type": "Fail",
+      "Error": "BackupPreflightFailed",
+      "Cause": "Backup check failed before isolation. Inspect backup_preflight and backup_preflight_error. This execution did not invoke isolation."
+    },
+    "PreviewOnly": {
+      "Type": "Pass",
+      "Result": {
+        "Mode": "PREVIEW",
+        "Message": "No isolation or recovery was executed."
+      },
+      "ResultPath": "$.preview",
+      "End": true
+    },
+    "RunWebOnly": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::states:startExecution.sync:2",
+      "TimeoutSeconds": 9500,
+      "Parameters": {
+        "StateMachineArn": "arn:aws:states:ap-northeast-2:123456789012:stateMachine:team5-web-response-core",
+        "Name.$": "States.Format('web-{}', States.UUID())",
+        "Input.$": "$"
+      },
+      "ResultSelector": {
+        "ExecutionArn.$": "$.ExecutionArn",
+        "Status.$": "$.Status"
+      },
+      "ResultPath": "$.web_result",
+      "End": true
+    },
+    "PrepareBastion": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+      "TimeoutSeconds": 4000,
+      "Parameters": {
+        "ProjectName": "team5-bastion-integration",
+        "EnvironmentVariablesOverride": [
+          {
+            "Name": "MODE",
+            "Value": "PREPARE",
+            "Type": "PLAINTEXT"
+          },
+          {
+            "Name": "EXECUTION_ID",
+            "Value.$": "$$.Execution.Id",
+            "Type": "PLAINTEXT"
+          }
+        ]
+      },
+      "ResultSelector": {
+        "BuildId.$": "$.Build.Id"
+      },
+      "ResultPath": "$.bastion_build",
+      "Next": "RespondInParallel"
+    },
+    "RespondInParallel": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "WebBranchRun",
+          "States": {
+            "WebBranchRun": {
+              "Type": "Parallel",
+              "Branches": [
+                {
+                  "StartAt": "RunWeb",
+                  "States": {
+                    "RunWeb": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::states:startExecution.sync:2",
+                      "TimeoutSeconds": 9500,
+                      "Parameters": {
+                        "StateMachineArn": "arn:aws:states:ap-northeast-2:123456789012:stateMachine:team5-web-response-core",
+                        "Name.$": "States.Format('web-{}', States.UUID())",
+                        "Input.$": "$"
+                      },
+                      "ResultSelector": {
+                        "ExecutionArn.$": "$.ExecutionArn",
+                        "Status.$": "$.Status"
+                      },
+                      "ResultPath": "$.web_result",
+                      "End": true
+                    }
+                  }
+                }
+              ],
+              "ResultPath": "$.result",
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.failure",
+                  "Next": "WebBranchFailed"
+                }
+              ],
+              "Next": "WebBranchSucceeded"
+            },
+            "WebBranchSucceeded": {
+              "Type": "Pass",
+              "Parameters": {
+                "Status": "SUCCEEDED",
+                "Result.$": "$.result[0]"
+              },
+              "End": true
+            },
+            "WebBranchFailed": {
+              "Type": "Pass",
+              "Parameters": {
+                "Status": "FAILED",
+                "Failure.$": "$.failure"
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "BastionBranchRun",
+          "States": {
+            "BastionBranchRun": {
+              "Type": "Parallel",
+              "Branches": [
+                {
+                  "StartAt": "IsolateOperatingBastion",
+                  "States": {
+                    "IsolateOperatingBastion": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::aws-sdk:ec2:modifyInstanceAttribute",
+                      "Parameters": {
+                        "InstanceId": "i-0000000000000c871",
+                        "Groups": [
+                          "sg-00000000000001a42"
+                        ]
+                      },
+                      "ResultPath": null,
+                      "TimeoutSeconds": 60,
+                      "Next": "CreateAndVerifyBastion"
+                    },
+                    "CreateAndVerifyBastion": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+                      "TimeoutSeconds": 4000,
+                      "Parameters": {
+                        "ProjectName": "team5-bastion-integration",
+                        "EnvironmentVariablesOverride": [
+                          {
+                            "Name": "MODE",
+                            "Value": "APPLY",
+                            "Type": "PLAINTEXT"
+                          },
+                          {
+                            "Name": "EXECUTION_ID",
+                            "Value.$": "$$.Execution.Id",
+                            "Type": "PLAINTEXT"
+                          }
+                        ]
+                      },
+                      "ResultSelector": {
+                        "BuildId.$": "$.Build.Id"
+                      },
+                      "ResultPath": "$.bastion_build",
+                      "End": true
+                    }
+                  }
+                }
+              ],
+              "ResultPath": "$.result",
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.failure",
+                  "Next": "BastionBranchFailed"
+                }
+              ],
+              "Next": "BastionBranchSucceeded"
+            },
+            "BastionBranchSucceeded": {
+              "Type": "Pass",
+              "Parameters": {
+                "Status": "SUCCEEDED",
+                "Result.$": "$.result[0]"
+              },
+              "End": true
+            },
+            "BastionBranchFailed": {
+              "Type": "Pass",
+              "Parameters": {
+                "Status": "FAILED",
+                "Failure.$": "$.failure"
+              },
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.response_results",
+      "Next": "ReleaseResponseLock"
+    },
+    "ReleaseResponseLock": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:deleteItem",
+      "TimeoutSeconds": 60,
+      "Parameters": {
+        "TableName": "team5-bastion-integration",
+        "Key": {
+          "LockId": {
+            "S": "response"
+          }
+        },
+        "ConditionExpression": "#owner = :owner",
+        "ExpressionAttributeNames": {
+          "#owner": "Owner"
+        },
+        "ExpressionAttributeValues": {
+          ":owner": {
+            "S.$": "$$.Execution.Id"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "EvaluateResponses"
+    },
+    "EvaluateResponses": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.response_results[0].Status",
+              "StringEquals": "SUCCEEDED"
+            },
+            {
+              "Variable": "$.response_results[1].Status",
+              "StringEquals": "SUCCEEDED"
+            }
+          ],
+          "Next": "ResponseCompleted"
+        }
+      ],
+      "Default": "ResponseFailed"
+    },
+    "ResponseCompleted": {
+      "Type": "Succeed"
+    },
+    "ResponseFailed": {
+      "Type": "Fail",
+      "Error": "CombinedResponseFailed",
+      "Cause": "Inspect response_results, child execution and CodeBuild logs. No automatic unquarantine or cleanup was performed."
+    }
+  }
+}
