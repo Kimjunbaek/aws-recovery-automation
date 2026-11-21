@@ -1,0 +1,10 @@
+version: 0.2
+phases:
+  install:
+    commands:
+      - python3 -m pip install 'boto3>=1.35,<2'
+      - python3 install_terraform.py
+  build:
+    commands:
+      - export PATH="$CODEBUILD_SRC_DIR/bin:$PATH"
+      - python3 worker.py
